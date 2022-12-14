@@ -288,6 +288,40 @@ class APSIMX():
         cll = self.get_crop_ll()
         return pd.DataFrame({"LL15" : ll15, "DUL" : dul, "Crop LL" : cll, "SAT" : sat})
 
+    def find_solute(self, solute, simulation=None):
+        sim = self.find_simulation(simulation)
+        solutes = sim.FindAllDescendants[Models.Soils.Solute]()
+        return [s for s in solutes if s.Name == solute][0]
+
+    def _get_initial_values(self, name, simulation):
+        s = self.find_solute(name, simulation)
+        return np.array(s.InitialValues)
+
+    def _set_initial_values(self, name, values, simulations):
+        sims = self.find_simulations(simulations)
+        for sim in sims:
+            s = self.find_solute(name, sim.Name)
+            s.InitialValues = values
+
+    def get_initial_no3(self, simulation=None):
+        return self._get_initial_values("NO3", simulation)
+
+    def set_initial_no3(self, values, simulations=None):
+        self._set_initial_values("NO3", values, simulations)
+
+    def get_initial_nh4(self, simulation=None):
+        return self._get_initial_values("NH4", simulation)
+
+    def set_initial_nh4(self, values, simulations=None):
+        self._set_initial_values("NH4", values, simulations)
+
+    def get_initial_urea(self, simulation=None):
+        return self._get_initial_values("Urea", simulation)
+
+    def set_initial_urea(self, values, simulations=None):
+        self._set_initial_values("Urea", values, simulations)
+
+
 class Simulation(object):
 
     def __init__(self, simulation):
