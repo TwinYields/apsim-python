@@ -36,10 +36,13 @@ from Models.Soils import Soil, Physical, SoilCrop
 
 class APSIMX():
 
-    def __init__(self, apsimx_file, copy=True):
+    def __init__(self, apsimx_file, copy=True, out_path=None):
         name, ext = os.path.splitext(apsimx_file)
         if copy:
-            copy_path = f"{name}_py{ext}"
+            if out_path is None:
+                copy_path = f"{name}_py{ext}"
+            else:
+                copy_path = out_path
             shutil.copy(apsimx_file, copy_path)
             pathlib.Path(f"{name}.db").unlink(missing_ok=True)
             self.path = copy_path
@@ -72,12 +75,13 @@ class APSIMX():
         with open(out_path, "w") as f:
             f.write(json)
 
-    def run(self, simulations=None):
+    def run(self, simulations=None, clean=True):
         # Clear old data before running
         self.results=None
-        self._DataStore.Dispose()
-        pathlib.Path(self._DataStore.FileName).unlink(missing_ok=True)
-        self._DataStore.Open()
+        if clean:
+            self._DataStore.Dispose()
+            pathlib.Path(self._DataStore.FileName).unlink(missing_ok=True)
+            self._DataStore.Open()
         if simulations is None:
             r = Models.Core.Run.Runner(self._Simulation)
         else:

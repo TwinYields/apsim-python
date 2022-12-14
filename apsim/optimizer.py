@@ -2,18 +2,49 @@ import numpy as np
 import pandas as pd
 import nlopt
 
+class SoilOptimizer(object):
+
+    def __init__(self, model, soil_params, obs_yield, obs_lai, harvest_date, zone_names = None):
+
+        if zone_names is not None:
+            if type(zone_names) == str:
+                zone_names = [zone_names]
+            zones = zones[zones.zone.apply(lambda x : x in zone_names)]
+
+        self.zone_names = zone_names
+        self.model = model
+        self.optvars = sorted(soil_params.keys())
+        self.N = len(self.optvars)
+
+        #Starting soil paramaters
+        self.ll15 = self.model.get_ll15().copy()
+        self.dul = self.model.get_dul().copy()
+        self.sat = self.model.get_sat().copy()
+        self.cll = self.model.get_crop_ll().copy()
+
+
+
+
+
+
+
+
+
+
 class ApsimOptimizer(object):
 
     def __init__(self, model, params, harvest_date, s2_lai, zones, zone_names = None):
         if zone_names is not None:
+            if type(zone_names) == str:
+                zone_names = [zone_names]
             zones = zones[zones.zone.apply(lambda x : x in zone_names)]
 
         self.zone_names = zone_names
-
         self.model = model
         self.cultivar_vars = sorted(params.keys())
         self.ll_vars = sorted(list(zones.zone))
         self.optvars = self.cultivar_vars + self.ll_vars
+
         self.N = len(self.optvars)
 
         self.Nc = len(self.cultivar_vars)
@@ -63,7 +94,7 @@ class ApsimOptimizer(object):
     def _print(self, clai, cyield, charvest, cost):
         self._iter += 1
         if self.print_count == 9:
-            print(f"Iteration {self._iter}, cost: LAI {clai:.1f} Yield {cyield:.1f}, Harvest {charvest:.1f}, Total {cost:.1f}")
+            print(f"\tIteration {self._iter}, cost: LAI {clai:.3f} Yield {cyield:.3f}, Harvest {charvest:.3f}, Total {cost:.3f}")
             self.print_count = 0
         else:
             self.print_count += 1
@@ -90,7 +121,7 @@ class ApsimOptimizer(object):
         if self.Nc > 0:
             self.model.update_cultivar(c)
         self.update_ll15(p[self.Nc : self.N])
-        self.model.run(self.zone_names)
+        self.model.run(self.zone_names, clean=False)
 
         sim_yield, lai_df, harvest_time = self.merge_sim_obs()
         e_lai = (lai_df.sim_LAI - lai_df.LAI)
@@ -122,8 +153,8 @@ class ApsimOptimizer(object):
         idx = np.random.randint(0, len(vs))
         return vs[idx]
 
-    def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5, normalized=True):
-        print(f"Optimizing {self.N} parameters")
+    def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5):
+        print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
 
         opt = nlopt.opt(alg, self.N)
         opt.set_min_objective(self.normalized_cost_function)
