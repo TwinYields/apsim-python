@@ -31,9 +31,9 @@ class OptimizerBase(object):
 
         self._iter = 0
         self.print_interval = 10
+        self.log_level = 1
 
     def _print(self, clai, cyield, charvest, cost):
-        self._iter += 1
         if (self._iter % self.print_interval) == 0:
             print(f"\tIteration {self._iter}, cost: LAI {clai:.3f} Yield {cyield:.3f}, Harvest {charvest:.3f}, Total {cost:.3f}")
 
@@ -58,6 +58,7 @@ class OptimizerBase(object):
 
     def cost_function(self, p, grad = []):
         self.step(p, grad)
+        self._iter += 1
         sim_yield, lai_df, harvest_time = self.merge_sim_obs()
         # Calculate errors
         e_lai = (lai_df.sim_lai - lai_df.obs_lai)
@@ -71,7 +72,8 @@ class OptimizerBase(object):
         cost_yield = np.mean(np.abs(e_yield))/np.max(self.obs_yield["obs_yield"].max())
         cost_harvest = abs(e_harvest) / 7 # Error or 1 week in same scale with other variables
         total_cost =  cost_lai + cost_yield + cost_harvest
-        self._print(cost_lai, cost_yield, cost_harvest, total_cost)
+        if self.log_level > 0:
+            self._print(cost_lai, cost_yield, cost_harvest, total_cost)
         return total_cost
 
     def rand_start(self, r):
@@ -88,7 +90,8 @@ class OptimizerBase(object):
         return yld, lai, htime
 
     def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5):
-        print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
+        if self.log_level > 0:
+            print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
         opt = nlopt.opt(alg, self.N)
         opt.set_min_objective(self.cost_function)
 
@@ -102,8 +105,9 @@ class OptimizerBase(object):
         self.opt_values = opt.optimize(init)
 
         self.step(self.opt_values)
-        print(f"Done after {self._iter} iterations")
-        print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
+        if self.log_level > 0:
+            print(f"Done after {self._iter} iterations")
+            print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
 
 
 class SoilOptimizer(OptimizerBase):
