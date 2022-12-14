@@ -72,24 +72,31 @@ class APSIMX():
         with open(out_path, "w") as f:
             f.write(json)
 
-    def run(self, simulation=None):
+    def run(self, simulations=None):
         # Clear old data before running
         self.results=None
         self._DataStore.Dispose()
         pathlib.Path(self._DataStore.FileName).unlink(missing_ok=True)
         self._DataStore.Open()
-        if simulation is None:
+        if simulations is None:
             r = Models.Core.Run.Runner(self._Simulation)
         else:
-            sim = self.find_simulation(simulation)
-            r = Models.Core.Run.Runner(sim)
+            sims = self.find_simulations(simulations)
+            # Runner needs C# list
+            cs_sims = List[Models.Core.Simulation]()
+            for s in sims:
+                cs_sims.Add(s)
+            r = Models.Core.Run.Runner(cs_sims)
         e = r.Run()
         if (len(e) > 0):
             print(e[0].ToString())
         self.results = self._read_results()
 
-        self.harvest_date = self.results.loc[self.results.WheatPhenologyCurrentStageName  == 'HarvestRipe',
+        try:
+            self.harvest_date = self.results.loc[self.results.WheatPhenologyCurrentStageName  == 'HarvestRipe',
                                     ["Zone", "ClockToday"]]
+        except:
+            self.harvest_date = None
 
     def _read_results(self):
         df = pd.read_sql_table("Report", "sqlite:///" + self.datastore)
@@ -189,19 +196,45 @@ class APSIMX():
         for weather in self._Simulation.FindAllDescendants[Weather]():
             print(weather.FileName)
 
+    def set_report(self, report, simulations = None):
+        simulations = self.find_simulations(simulations)
+        for sim in simulations:
+            r = sim.FindDescendant[Models.Report]()
+            r.set_VariableNames(report.strip().splitlines())
+
+    def get_report(self, simulation = None):
+        sim = self.find_simulation(simulation)
+        report = list(sim.FindAllDescendants[Models.Report]())[0]
+        return list(report.get_VariableNames())
+
     def find_physical_soil(self, simulation = None):
-        if simulation is None:
-            sim = self.simulations[0]
-        else:
-            sim = self.find_simulation(simulation)
+        sim = self.find_simulation(simulation)
         soil = sim.FindDescendant[Soil]()
         psoil = soil.FindDescendant[Physical]()
         return psoil
 
-    def find_simulation(self, name):
+    # Find a list of simulations by name
+    def find_simulations(self, simulations = None):
+        if simulations is None:
+            return self.simulations
+        if type(simulations) == str:
+            simulations = [simulations]
+        sims = []
+        for s in self.simulations:
+            if s.Name in simulations:
+                sims.append(s)
+        if len(sims) == 0:
+            print("Not found!")
+        else:
+            return sims
+
+    # Find a single simulation by name
+    def find_simulation(self, simulation = None):
+        if simulation is None:
+            return self.simulations[0]
         sim = None
         for s in self.simulations:
-            if s.Name == name:
+            if s.Name == simulation:
                 sim = s
                 break
         if sim is None:
