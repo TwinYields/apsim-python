@@ -80,6 +80,13 @@ class OptimizerBase(object):
         idx = np.random.randint(0, len(vs))
         return vs[idx]
 
+    @property
+    def optimized_values(self):
+        yld, lai, htime = self.merge_sim_obs()
+        ovs = pd.DataFrame({self.optvars[i] :self.opt_values[i] for i in range(self.N)}, index=[0])
+        yld = pd.concat([yld, ovs], axis=1)
+        return yld, lai, htime
+
     def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5):
         print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
         opt = nlopt.opt(alg, self.N)
@@ -96,6 +103,7 @@ class OptimizerBase(object):
 
         self.step(self.opt_values)
         print(f"Done after {self._iter} iterations")
+        print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
 
 
 class SoilOptimizer(OptimizerBase):
@@ -103,11 +111,14 @@ class SoilOptimizer(OptimizerBase):
         def __init__(self, *args, **kwargs):
             super(SoilOptimizer, self).__init__(*args, **kwargs)
 
-            #Save starting soil
+            #Save starting values
             self.ll15 = self.model.get_ll15().copy()
             self.dul = self.model.get_dul().copy()
             self.sat = self.model.get_sat().copy()
             self.cll = self.model.get_crop_ll().copy()
+            self.initial_no3 = self.model.get_initial_no3().copy()
+            self.initial_nh4 = self.model.get_initial_nh4().copy()
+            self.initial_urea = self.model.get_initial_urea().copy()
 
         def step(self, p, grad=[]):
             for zone in self.zone_names:
@@ -125,6 +136,13 @@ class SoilOptimizer(OptimizerBase):
                             if tmp_cll[j] >= new_dul[j]:
                                 tmp_cll[j] = new_dul[j] - 0.01
                             self.model.set_crop_ll(tmp_cll, zone)
+                    if v.lower() == "no3":
+                        self.model.set_initial_no3(self.initial_no3 + p[i])
+                    if v.lower() == "nh4":
+                        self.model.set_initial_nh4(self.initial_nh4 + p[i])
+                    if v.lower() == "urea":
+                        self.model.set_initial_urea(self.initial_urea + p[i])
+
             self.model.run(self.zone_names)
 
 class ApsimOptimizer(object):
