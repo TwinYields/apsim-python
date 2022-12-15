@@ -75,7 +75,12 @@ class APSIMX():
         with open(out_path, "w") as f:
             f.write(json)
 
-    def run(self, simulations=None, clean=True):
+    def run(self, simulations=None, clean=True, multithread=True):
+        if multithread:
+            runtype = Models.Core.Run.Runner.RunTypeEnum.MultiThreaded
+        else:
+            runtype = Models.Core.Run.Runner.RunTypeEnum.SingleThreaded
+
         # Clear old data before running
         self.results=None
         if clean:
@@ -83,14 +88,14 @@ class APSIMX():
             pathlib.Path(self._DataStore.FileName).unlink(missing_ok=True)
             self._DataStore.Open()
         if simulations is None:
-            r = Models.Core.Run.Runner(self._Simulation)
+            r = Models.Core.Run.Runner(self._Simulation, True, False, False, None, runtype)
         else:
             sims = self.find_simulations(simulations)
             # Runner needs C# list
             cs_sims = List[Models.Core.Simulation]()
             for s in sims:
                 cs_sims.Add(s)
-            r = Models.Core.Run.Runner(cs_sims)
+            r = Models.Core.Run.Runner(cs_sims, True, False, False, None, runtype)
         e = r.Run()
         if (len(e) > 0):
             print(e[0].ToString())
@@ -247,14 +252,26 @@ class APSIMX():
         psoil = self.find_physical_soil(simulation)
         return np.array(psoil.DUL)
 
-    def set_dul(self, dul, simulation=None):
-        psoil = self.find_physical_soil(simulation)
-        psoil.DUL = dul
+    def set_dul(self, dul, simulations=None):
+        for sim in self.find_simulations(simulations):
+            psoil = sim.FindDescendant[Physical]()
+            psoil.DUL = dul
+            self._fix_crop_ll(sim.Name)
 
-    def set_sat(self, sat, simulation=None):
-        psoil = self.find_physical_soil(simulation)
-        psoil.SAT = sat
-        psoil.SW = psoil.DUL
+    # Make sure that crop ll is below DUL in all layers
+    def _fix_crop_ll(self, simulation):
+        tmp_cll = self.get_crop_ll()
+        dul = self.get_dul(simulation)
+        for j in range(len(tmp_cll)):
+            if tmp_cll[j] > dul[j]:
+                tmp_cll[j] = dul[j] - 0.01
+        self.set_crop_ll(tmp_cll, simulation)
+
+    def set_sat(self, sat, simulations=None):
+        for sim in self.find_simulations(simulations):
+            psoil = sim.FindDescendant[Physical]()
+            psoil.SAT = sat
+            psoil.SW = psoil.DUL
 
     def get_sat(self, simulation=None):
         psoil = self.find_physical_soil(simulation)
@@ -264,26 +281,32 @@ class APSIMX():
         psoil = self.find_physical_soil(simulation)
         return np.array(psoil.LL15)
 
-    def set_ll15(self, ll15, simulation=None):
-        psoil = self.find_physical_soil(simulation)
-        psoil.LL15 = ll15
+    def set_ll15(self, ll15, simulations=None):
+        for sim in self.find_simulations(simulations):
+            psoil = sim.FindDescendant[Physical]()
+            psoil.LL15 = ll15
 
     def get_crop_ll(self, simulation=None):
         psoil = self.find_physical_soil(simulation)
         sc = psoil.FindChild[SoilCrop]()
         return np.array(sc.LL)
 
-    def set_crop_ll(self, ll, simulation=None):
-        psoil = self.find_physical_soil(simulation)
-        sc = psoil.FindChild[SoilCrop]()
-        sc.LL = ll
+    def set_crop_ll(self, ll, simulations=None):
+        for sim in self.find_simulations(simulations):
+            psoil = sim.FindDescendant[Physical]()
+            sc = psoil.FindChild[SoilCrop]()
+            sc.LL = ll
 
-    def get_soil(self):
-        sat = self.get_sat()
-        dul = self.get_dul().copy()
-        ll15 = self.get_ll15().copy()
-        cll = self.get_crop_ll()
-        return pd.DataFrame({"LL15" : ll15, "DUL" : dul, "Crop LL" : cll, "SAT" : sat})
+    def get_soil(self, simulation=None):
+        sat = self.get_sat(simulation)
+        dul = self.get_dul(simulation)
+        ll15 = self.get_ll15(simulation)
+        cll = self.get_crop_ll(simulation)
+        psoil = self.find_physical_soil(simulation)
+        depth = psoil.Depth
+        return pd.DataFrame({"Depth" : depth, "LL15" : ll15, "DUL" : dul, "SAT" : sat, "Crop LL" : cll,
+                    "Initial NO3" : self.get_initial_no3(),
+                    "Initial NH4" : self.get_initial_nh4()})
 
     def find_solute(self, solute, simulation=None):
         sim = self.find_simulation(simulation)

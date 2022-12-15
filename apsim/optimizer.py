@@ -4,7 +4,7 @@ import nlopt
 
 class OptimizerBase(object):
 
-    def __init__(self, model, params, obs_yield, obs_lai, harvest_date, zone_names = None):
+    def __init__(self, model, params, obs_yield, obs_lai, harvest_date, zone_names = None, multithread = True):
 
         obs_yield.rename(str.lower, axis=1, inplace=True)
         obs_lai.rename(str.lower, axis=1, inplace=True)
@@ -23,6 +23,7 @@ class OptimizerBase(object):
         self.obs_lai = obs_lai
         self.obs_yield = obs_yield
         self.harvest_date = harvest_date
+        self.multithread = multithread
 
         self.optvars = sorted(params.keys())
         self.params = params.copy()
@@ -48,7 +49,8 @@ class OptimizerBase(object):
         sim_yield =  sim_yield.merge(self.obs_yield)
 
         htime = self.model.harvest_date
-        if htime is None:
+        #print(htime)
+        if htime is None or htime.shape[0] == 0:
             print("Out of range")
             harvest_time = df["clocktoday"].max()
         else:
@@ -57,6 +59,7 @@ class OptimizerBase(object):
 
     def calculate_cost(self, p, grad = []):
         self.step(p, grad)
+        self._run()
         self._iter += 1
         sim_yield, lai_df, harvest_time = self.merge_sim_obs()
         # Calculate errors
@@ -96,6 +99,9 @@ class OptimizerBase(object):
     def step(self, p, grad=[]):
         pass
 
+    def _run(self):
+        self.model.run(self.zone_names, clean=False, multithread = self.multithread)
+
     def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5):
         if self.log_level > 0:
             print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
@@ -117,7 +123,6 @@ class OptimizerBase(object):
             self._print_optimized()
 
 
-
 class SoilOptimizer(OptimizerBase):
 
         def __init__(self, *args, **kwargs):
@@ -136,29 +141,22 @@ class SoilOptimizer(OptimizerBase):
             print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
 
         def step(self, p, grad=[]):
-            for zone in self.zone_names:
-                for i in range(self.N):
-                    v = self.optvars[i]
-                    if v == "ll15":
-                        self.model.set_ll15(self.ll15 + p[i], zone)
-                    if v == "dul":
-                        new_dul = self.dul + p[i]
-                        self.model.set_dul(new_dul, zone)
-                        self.model.set_sat(self.sat + p[i], zone)
-                        #Make sure crop LL is below DUL
-                        tmp_cll = self.cll.copy()
-                        for j in range(len(tmp_cll)):
-                            if tmp_cll[j] >= new_dul[j]:
-                                tmp_cll[j] = new_dul[j] - 0.01
-                            self.model.set_crop_ll(tmp_cll, zone)
-                    if v.lower() == "no3":
-                        self.model.set_initial_no3(self.initial_no3 + p[i])
-                    if v.lower() == "nh4":
-                        self.model.set_initial_nh4(self.initial_nh4 + p[i])
-                    if v.lower() == "urea":
-                        self.model.set_initial_urea(self.initial_urea + p[i])
-
-            self.model.run(self.zone_names, clean=False)
+            #for zone in self.zone_names:
+            zones = self.zone_names
+            for i in range(self.N):
+                v = self.optvars[i]
+                if v == "ll15":
+                    self.model.set_ll15(self.ll15 + p[i], zones)
+                if v == "dul":
+                    new_dul = self.dul + p[i]
+                    self.model.set_dul(new_dul, zones)
+                    self.model.set_sat(self.sat + p[i], zones)
+                if v.lower() == "no3":
+                    self.model.set_initial_no3(self.initial_no3 + p[i])
+                if v.lower() == "nh4":
+                    self.model.set_initial_nh4(self.initial_nh4 + p[i])
+                if v.lower() == "urea":
+                    self.model.set_initial_urea(self.initial_urea + p[i])
 
 
 class PhenologyOptimizer(OptimizerBase):
@@ -166,7 +164,6 @@ class PhenologyOptimizer(OptimizerBase):
     def step(self, p, grad=[]):
         c = {self.optvars[i] : p[i] for i in range(self.N)}
         self.model.update_cultivar(c, self.zone_names)
-        self.model.run(self.zone_names, clean=False)
 
     def _print_optimized(self):
         print(str.join("\n", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
