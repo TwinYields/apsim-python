@@ -118,8 +118,8 @@ class APSIMX():
         return params
 
     """Update cultivar parameters"""
-    def update_cultivar(self, parameters, clear=False):
-        for sim in self.simulations:
+    def update_cultivar(self, parameters, simulations=None, clear=False):
+        for sim in self.find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
             cultivar = zone.Plants[0].FindChild[Models.PMF.Cultivar]()
             if clear:
@@ -130,8 +130,8 @@ class APSIMX():
             cultivar.Command = [f"{k}={v}" for k,v in params.items()]
             self.cultivar_command = params
 
-    def show_management(self):
-        for sim in self.simulations:
+    def show_management(self, simulations=None):
+        for sim in self.find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
             print("Zone:", zone.Name)
             for action in zone.FindAllChildren[Models.Manager]():
@@ -139,12 +139,9 @@ class APSIMX():
                 for param in action.Parameters:
                     print("\t\t", param.Key,":", param.Value)
 
-    def update_management(self, management, zones=None, reload=True):
-        for sim in self.simulations:
+    def update_management(self, management, simulations=None, reload=True):
+        for sim in self.find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
-            if zones is not None and zone.Name.lower() not in zones:
-                #print("Not in zones", zone.Name)
-                continue
             for action in zone.FindAllChildren[Models.Manager]():
                 if action.Name in management:
                     #print("Updating", action.Name)

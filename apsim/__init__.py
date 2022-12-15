@@ -1,2 +1,2 @@
 from .apsim import APSIMX
-from .optimizer import ApsimOptimizer, SoilOptimizer, OptimizerBase
+from .optimizer import ApsimOptimizer, SoilOptimizer, PhenologyOptimizer, OptimizerBase

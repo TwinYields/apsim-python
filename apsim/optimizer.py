@@ -15,7 +15,6 @@ class OptimizerBase(object):
         if zone_names is not None:
             if type(zone_names) == str:
                 zone_names = [zone_names]
-
             obs_yield = obs_yield[obs_yield.zone.apply(lambda x : x in zone_names)]
             obs_lai = obs_lai[obs_lai.zone.apply(lambda x : x in zone_names)]
 
@@ -56,7 +55,7 @@ class OptimizerBase(object):
             harvest_time = htime.iloc[0]["ClockToday"]
         return sim_yield, sim_lai, harvest_time
 
-    def cost_function(self, p, grad = []):
+    def calculate_cost(self, p, grad = []):
         self.step(p, grad)
         self._iter += 1
         sim_yield, lai_df, harvest_time = self.merge_sim_obs()
@@ -83,17 +82,25 @@ class OptimizerBase(object):
         return vs[idx]
 
     @property
-    def optimized_values(self):
-        yld, lai, htime = self.merge_sim_obs()
-        ovs = pd.DataFrame({self.optvars[i] :self.opt_values[i] for i in range(self.N)}, index=[0])
-        yld = pd.concat([yld, ovs], axis=1)
-        return yld, lai, htime
+    def optimized_data(self):
+        return self.merge_sim_obs()
+
+    @property
+    def optimized_parameters(self):
+        return pd.DataFrame({self.optvars[i] :self.opt_values[i] for i in range(self.N)}, index=[0])
+
+
+    def _print_optimized(self):
+        pass
+
+    def step(self, p, grad=[]):
+        pass
 
     def optimize(self, alg = nlopt.GN_DIRECT_L, maxeval = 5):
         if self.log_level > 0:
             print(f"Optimizing {self.N} parameters, max {maxeval} iterations")
         opt = nlopt.opt(alg, self.N)
-        opt.set_min_objective(self.cost_function)
+        opt.set_min_objective(self.calculate_cost)
 
         opt.set_lower_bounds([self.params[v][0] for v in self.optvars])
         opt.set_upper_bounds([self.params[v][1] for v in self.optvars])
@@ -107,7 +114,8 @@ class OptimizerBase(object):
         self.step(self.opt_values)
         if self.log_level > 0:
             print(f"Done after {self._iter} iterations")
-            print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
+            self._print_optimized()
+
 
 
 class SoilOptimizer(OptimizerBase):
@@ -123,6 +131,9 @@ class SoilOptimizer(OptimizerBase):
             self.initial_no3 = self.model.get_initial_no3().copy()
             self.initial_nh4 = self.model.get_initial_nh4().copy()
             self.initial_urea = self.model.get_initial_urea().copy()
+
+        def _print_optimized(self):
+            print(str.join(", ", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
 
         def step(self, p, grad=[]):
             for zone in self.zone_names:
@@ -147,7 +158,18 @@ class SoilOptimizer(OptimizerBase):
                     if v.lower() == "urea":
                         self.model.set_initial_urea(self.initial_urea + p[i])
 
-            self.model.run(self.zone_names)
+            self.model.run(self.zone_names, clean=False)
+
+
+class PhenologyOptimizer(OptimizerBase):
+
+    def step(self, p, grad=[]):
+        c = {self.optvars[i] : p[i] for i in range(self.N)}
+        self.model.update_cultivar(c, self.zone_names)
+        self.model.run(self.zone_names, clean=False)
+
+    def _print_optimized(self):
+        print(str.join("\n", [f"{self.optvars[i]} = {self.opt_values[i]:.2f}" for i in range(self.N)]))
 
 class ApsimOptimizer(object):
 
