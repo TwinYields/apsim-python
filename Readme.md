@@ -15,5 +15,5 @@ dotnet build -o ~/.local/lib/apsimx -c Release ApsimX/Models/Models.csproj
 And add to Pythonpath:
 
 ```bash
-export PYTHONPATH=~/.local/bin/apsimx
+export PYTHONPATH=~/.local/lib/apsimx
 ```

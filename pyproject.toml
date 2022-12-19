@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "apsim"
+version = "0.0.1"
+description = "Python interface for APSIM next generation."
+authors = ["Matti Pastell <matti.pastell@luke.fi>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.12"
+pythonnet = "^3.0.1"
+numpy = "^1.24.0"
+pandas = "^1.5.2"
+nlopt = "2.6.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
