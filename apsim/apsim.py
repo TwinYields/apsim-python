@@ -1,3 +1,7 @@
+"""
+Interface to APSIM simulation models using Python.NET.
+"""
+
 import pythonnet
 if pythonnet.get_runtime_info() is None:
     pythonnet.load("coreclr")
@@ -35,8 +39,20 @@ from Models.Climate import Weather
 from Models.Soils import Soil, Physical, SoilCrop
 
 class APSIMX():
+    """Modify and run Apsim next generation simulation models."""
 
     def __init__(self, apsimx_file, copy=True, out_path=None):
+        """
+        Parameters
+        ----------
+        apsimx_file
+            Path to .apsimx file
+        copy, optional
+            If `True` a copy of original simulation will be created on init, by default True.
+        out_path, optional
+            Path of modified simulation, if `None` will be set automatically.
+        """
+
         name, ext = os.path.splitext(apsimx_file)
         if copy:
             if out_path is None:
@@ -49,19 +65,19 @@ class APSIMX():
         else:
             self.path = apsimx_file
 
-        self.results = None
+        self.results = None #: Simulation results as dataframe
         self._Simulation = None #TopLevel Simulations object
         self.simulations = None # List of Simulation object
         self.py_simulations = None
         self.datastore = None
         self.harvest_date = None
 
-        self.load(self.path)
+        self._load(self.path)
         plant = self._Simulation.FindDescendant[Models.Core.Zone]().Plants[0]
         cultivar = plant.FindChild[Cultivar]()
         self.cultivar_command = self._cultivar_params(cultivar)
 
-    def load(self, path):
+    def _load(self, path):
         self._Simulation = FileFormat.ReadFromFile[Models.Core.Simulations](path, None, False)
         self.simulations = list(self._Simulation.FindAllChildren[Models.Core.Simulation]())
         self.py_simulations = [Simulation(s) for s in self.simulations]
@@ -69,6 +85,13 @@ class APSIMX():
         self._DataStore = self._Simulation.FindChild[Models.Storage.DataStore]()
 
     def save(self, out_path=None):
+        """Save the model
+
+        Parameters
+        ----------
+        out_path, optional
+            Path of output .apsimx file, by default `None`
+        """
         if out_path is None:
             out_path = self.path
         json = Models.Core.ApsimFile.FileFormat.WriteToString(self._Simulation)
@@ -76,6 +99,17 @@ class APSIMX():
             f.write(json)
 
     def run(self, simulations=None, clean=True, multithread=True):
+        """Run simulations
+
+        Parameters
+        ----------
+        simulations, optional
+            List of simulation names to run, if `None` runs all simulations, by default `None`.
+        clean, optional
+            If `True` remove existing database for the file before running, by default `True`
+        multithread, optional
+            If `True` APSIM uses multiple threads, by default `True`
+        """
         if multithread:
             runtype = Models.Core.Run.Runner.RunTypeEnum.MultiThreaded
         else:
@@ -90,7 +124,7 @@ class APSIMX():
         if simulations is None:
             r = Models.Core.Run.Runner(self._Simulation, True, False, False, None, runtype)
         else:
-            sims = self.find_simulations(simulations)
+            sims = self._find_simulations(simulations)
             # Runner needs C# list
             cs_sims = List[Models.Core.Simulation]()
             for s in sims:
@@ -121,10 +155,20 @@ class APSIMX():
                 p, v = c.split("=")
                 params[p.strip()] = v.strip()
         return params
-
-    """Update cultivar parameters"""
+    
     def update_cultivar(self, parameters, simulations=None, clear=False):
-        for sim in self.find_simulations(simulations):
+        """Update cultivar parameters
+
+        Parameters
+        ----------
+        parameters
+            Parameter = value dictionary of cultivar paramaters to update.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations.
+        clear, optional
+            If `True` remove all existing parameters, by default `False`.
+        """
+        for sim in self._find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
             cultivar = zone.Plants[0].FindChild[Models.PMF.Cultivar]()
             if clear:
@@ -136,7 +180,14 @@ class APSIMX():
             self.cultivar_command = params
 
     def show_management(self, simulations=None):
-        for sim in self.find_simulations(simulations):
+        """Show management
+
+        Parameters
+        ----------
+        simulations, optional
+            List of simulation names to update, if `None` show all simulations.
+        """
+        for sim in self._find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
             print("Zone:", zone.Name)
             for action in zone.FindAllChildren[Models.Manager]():
@@ -145,7 +196,19 @@ class APSIMX():
                     print("\t\t", param.Key,":", param.Value)
 
     def update_management(self, management, simulations=None, reload=True):
-        for sim in self.find_simulations(simulations):
+        """Update management
+
+        Parameters
+        ----------
+        management
+            Parameter = value dictionary of management paramaters to update. Call 
+            `show_management` to see current values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations.
+        reload, optional
+            _description_, by default True
+        """
+        for sim in self._find_simulations(simulations):
             zone = sim.FindChild[Models.Core.Zone]()
             for action in zone.FindAllChildren[Models.Manager]():
                 if action.Name in management:
@@ -159,20 +222,21 @@ class APSIMX():
         # haven't figured out another way to make it work
         if reload:
             self.save()
-            self.load(self.path)
+            self._load(self.path)
 
     # Convert CS KeyValuePair to dictionary
-    def kvtodict(self, kv):
+    def _kvtodict(self, kv):
         return {kv[i].Key : kv[i].Value for i in range(kv.Count)}
 
     def get_management(self):
+        """Get management of all simulations as dataframe"""
         res = []
         for sim in self.simulations:
             actions = sim.FindAllDescendants[Models.Manager]()
             out = {}
             out["simulation"] = sim.Name
             for action in actions:
-                params = self.kvtodict(action.Parameters)
+                params = self._kvtodict(action.Parameters)
                 if "FertiliserType" in params:
                     out[params["FertiliserType"]] = float(params["Amount"])
                 if "CultivarName" in params:
@@ -184,43 +248,84 @@ class APSIMX():
                 res.append(out)
         return pd.DataFrame(res)
 
-    def set_dates(self, start_time=None, end_time=None):
-        for sim in self.simulations:
-            clock = sim.FindChild[Models.Clock]()
-            if start_time is not None:
-                #clock.End = DateTime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
-                clock.End = DateTime.Parse(start_time)
-            if end_time is not None:
-                #clock.End = DateTime(end_time.year, end_time.month, end_time.day, 0, 0, 0)
-                clock.End = DateTime.Parse(end_time)
+    def set_dates(self, start_date=None, end_date=None, simulations = None):
+        """Set simulation dates
 
-    def set_weather(self, weather_file):
-        for weather in self._Simulation.FindAllDescendants[Weather]():
+        Parameters
+        ----------
+        start_date, optional
+            Start date as string, by default `None`
+        end_date, optional
+            End date as string, by default `None`
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        for sim in self._find_simulations(simulations):
+            clock = sim.FindChild[Models.Clock]()
+            if start_date is not None:
+                #clock.End = DateTime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
+                clock.End = DateTime.Parse(start_date)
+            if end_date is not None:
+                #clock.End = DateTime(end_time.year, end_time.month, end_time.day, 0, 0, 0)
+                clock.End = DateTime.Parse(end_date)
+
+    def set_weather(self, weather_file, simulations = None):
+        """Set simulation weather file
+
+        Parameters
+        ----------
+        weather_file
+            Weather file name, path should be relative to simulation or absolute.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        for sim in self._find_simulations(simulations):
+            weather = sim.FindChild[Weather]()
             weather.FileName = weather_file
 
     def show_weather(self):
+        """Show weather file for all simulations"""
         for weather in self._Simulation.FindAllDescendants[Weather]():
             print(weather.FileName)
 
     def set_report(self, report, simulations = None):
-        simulations = self.find_simulations(simulations)
+        """Set APSIM report
+
+        Parameters
+        ----------
+        report
+            New report string.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        simulations = self._find_simulations(simulations)
         for sim in simulations:
             r = sim.FindDescendant[Models.Report]()
             r.set_VariableNames(report.strip().splitlines())
 
     def get_report(self, simulation = None):
-        sim = self.find_simulation(simulation)
+        """Get current report string
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name, if `None` use the first simulation.
+        Returns
+        -------
+            List of report lines.
+        """
+        sim = self._find_simulation(simulation)
         report = list(sim.FindAllDescendants[Models.Report]())[0]
         return list(report.get_VariableNames())
 
-    def find_physical_soil(self, simulation = None):
-        sim = self.find_simulation(simulation)
+    def _find_physical_soil(self, simulation = None):
+        sim = self._find_simulation(simulation)
         soil = sim.FindDescendant[Soil]()
         psoil = soil.FindDescendant[Physical]()
         return psoil
 
     # Find a list of simulations by name
-    def find_simulations(self, simulations = None):
+    def _find_simulations(self, simulations = None):
         if simulations is None:
             return self.simulations
         if type(simulations) == str:
@@ -235,7 +340,7 @@ class APSIMX():
             return sims
 
     # Find a single simulation by name
-    def find_simulation(self, simulation = None):
+    def _find_simulation(self, simulation = None):
         if simulation is None:
             return self.simulations[0]
         sim = None
@@ -249,11 +354,30 @@ class APSIMX():
             return sim
 
     def get_dul(self, simulation=None):
-        psoil = self.find_physical_soil(simulation)
+        """Get soil dry upper limit (DUL)
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name.
+        Returns
+        -------
+            Array of DUL values
+        """
+        psoil = self._find_physical_soil(simulation)
         return np.array(psoil.DUL)
 
     def set_dul(self, dul, simulations=None):
-        for sim in self.find_simulations(simulations):
+        """Set soil dry upper limit (DUL)
+
+        Parameters
+        ----------
+        dul
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        for sim in self._find_simulations(simulations):
             psoil = sim.FindDescendant[Physical]()
             psoil.DUL = dul
             self._fix_crop_ll(sim.Name)
@@ -268,77 +392,181 @@ class APSIMX():
         self.set_crop_ll(tmp_cll, simulation)
 
     def set_sat(self, sat, simulations=None):
-        for sim in self.find_simulations(simulations):
+        """Set soil saturated water content (SAT)
+
+        Parameters
+        ----------
+        sat
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        
+        for sim in self._find_simulations(simulations):
             psoil = sim.FindDescendant[Physical]()
             psoil.SAT = sat
             psoil.SW = psoil.DUL
 
     def get_sat(self, simulation=None):
-        psoil = self.find_physical_soil(simulation)
+        """Get soil saturated water content (SAT)
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name.
+        Returns
+        -------
+            Array of SAT values
+        """
+        
+        psoil = self._find_physical_soil(simulation)
         return np.array(psoil.SAT)
 
     def get_ll15(self, simulation=None):
-        psoil = self.find_physical_soil(simulation)
+        """Get soil water content lower limit (LL15)
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name.
+        Returns
+        -------
+            Array of LL15 values
+        """
+        psoil = self._find_physical_soil(simulation)
         return np.array(psoil.LL15)
 
     def set_ll15(self, ll15, simulations=None):
-        for sim in self.find_simulations(simulations):
+        """Set soil water content lower limit (LL15)
+
+        Parameters
+        ----------
+        ll15
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        for sim in self._find_simulations(simulations):
             psoil = sim.FindDescendant[Physical]()
             psoil.LL15 = ll15
 
     def get_crop_ll(self, simulation=None):
-        psoil = self.find_physical_soil(simulation)
+        """Get crop lower limit
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name.
+        Returns
+        -------
+            Array of values
+        """
+        
+        psoil = self._find_physical_soil(simulation)
         sc = psoil.FindChild[SoilCrop]()
         return np.array(sc.LL)
 
     def set_crop_ll(self, ll, simulations=None):
-        for sim in self.find_simulations(simulations):
+        """Set crop lower limit
+
+        Parameters
+        ----------
+        ll
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+        
+        for sim in self._find_simulations(simulations):
             psoil = sim.FindDescendant[Physical]()
             sc = psoil.FindChild[SoilCrop]()
             sc.LL = ll
 
     def get_soil(self, simulation=None):
+        """Get soil definition as dataframe
+
+        Parameters
+        ----------
+        simulation, optional
+            Simulation name.
+        Returns
+        -------
+            Dataframe with soil definition
+        """
         sat = self.get_sat(simulation)
         dul = self.get_dul(simulation)
         ll15 = self.get_ll15(simulation)
         cll = self.get_crop_ll(simulation)
-        psoil = self.find_physical_soil(simulation)
+        psoil = self._find_physical_soil(simulation)
         depth = psoil.Depth
         return pd.DataFrame({"Depth" : depth, "LL15" : ll15, "DUL" : dul, "SAT" : sat, "Crop LL" : cll,
                     "Initial NO3" : self.get_initial_no3(),
                     "Initial NH4" : self.get_initial_nh4()})
 
-    def find_solute(self, solute, simulation=None):
-        sim = self.find_simulation(simulation)
+    def _find_solute(self, solute, simulation=None):
+        sim = self._find_simulation(simulation)
         solutes = sim.FindAllDescendants[Models.Soils.Solute]()
         return [s for s in solutes if s.Name == solute][0]
 
     def _get_initial_values(self, name, simulation):
-        s = self.find_solute(name, simulation)
+        s = self._find_solute(name, simulation)
         return np.array(s.InitialValues)
 
     def _set_initial_values(self, name, values, simulations):
-        sims = self.find_simulations(simulations)
+        sims = self._find_simulations(simulations)
         for sim in sims:
-            s = self.find_solute(name, sim.Name)
+            s = self._find_solute(name, sim.Name)
             s.InitialValues = values
 
     def get_initial_no3(self, simulation=None):
+        """Get soil initial NO3 content"""
         return self._get_initial_values("NO3", simulation)
 
     def set_initial_no3(self, values, simulations=None):
+        """Set soil initial NO3 content
+
+        Parameters
+        ----------
+        values
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
         self._set_initial_values("NO3", values, simulations)
 
     def get_initial_nh4(self, simulation=None):
+        """Get soil initial NH4 content"""
         return self._get_initial_values("NH4", simulation)
 
     def set_initial_nh4(self, values, simulations=None):
+        """Set soil initial NH4 content
+
+        Parameters
+        ----------
+        values
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+
         self._set_initial_values("NH4", values, simulations)
 
     def get_initial_urea(self, simulation=None):
+        """Get soil initial urea content"""
         return self._get_initial_values("Urea", simulation)
 
     def set_initial_urea(self, values, simulations=None):
+        """Set soil initial urea content
+
+        Parameters
+        ----------
+        values
+            Collection of values, has to be the same length as existing values.
+        simulations, optional
+            List of simulation names to update, if `None` update all simulations
+        """
+
+        
         self._set_initial_values("Urea", values, simulations)
 
 
